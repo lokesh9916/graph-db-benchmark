@@ -13,3 +13,4 @@ class Neo4jAuraAdapter(CypherAdapter):
         self.user = env["user"]
         self.password = env["password"]
         self.database = env.get("database")
+        self.trust_all = env.get("trust_all", False)

@@ -45,11 +45,13 @@ def cognodb_env() -> dict[str, str]:
 
 
 def neo4j_env() -> dict[str, str]:
+    user = os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME", "neo4j")
     return {
         "uri": os.environ["NEO4J_URI"],
-        "user": os.getenv("NEO4J_USER", "neo4j"),
+        "user": user,
         "password": os.environ["NEO4J_PASSWORD"],
         "database": os.getenv("NEO4J_DATABASE"),
+        "trust_all": os.getenv("NEO4J_TRUST_ALL", "").lower() in ("1", "true", "yes"),
     }
 
 

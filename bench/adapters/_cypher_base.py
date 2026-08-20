@@ -14,15 +14,48 @@ class CypherAdapter(Adapter):
     user: str = ""
     password: str = ""
     database: str | None = None
+    trust_all: bool = False
 
     def connect(self) -> None:
         self._driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
-        # Aura Free sometimes fails routing verification during provisioning;
-        # queries themselves may still work. Don't abort the benchmark for this.
+        # Aura Free's routing endpoint sometimes lands on a cluster member that
+        # doesn't host the user database. If the configured database exists on a
+        # different member, reconnect directly to that member.
         try:
             self._driver.verify_connectivity()
         except Exception as e:
             print(f"[warn] verify_connectivity failed: {e}; continuing anyway")
+        if self.database:
+            self._reconnect_to_database_member()
+
+    def _reconnect_to_database_member(self) -> None:
+        from neo4j import GraphDatabase as _GraphDatabase
+        try:
+            # SHOW DATABASES is a system query; force system database.
+            with self._driver.session(database="system") as s:
+                rec = s.run(
+                    "SHOW DATABASES YIELD name, address, currentStatus "
+                    "WHERE name = $db AND currentStatus = 'online'",
+                    db=self.database,
+                ).single()
+        except Exception as e:
+            print(f"[warn] could not discover database member: {e}")
+            return
+        if not rec:
+            print(f"[warn] database {self.database} not found or not online")
+            return
+        address = rec["address"]
+        # Convert routing scheme to direct bolt scheme on the member address.
+        scheme = "bolt+ssc" if self.uri.startswith(("bolt+s", "neo4j+s")) else "bolt"
+        direct_uri = f"{scheme}://{address}"
+        print(f"[neo4j] reconnecting directly to database member: {direct_uri}")
+        try:
+            new_driver = _GraphDatabase.driver(direct_uri, auth=(self.user, self.password))
+            new_driver.verify_connectivity()
+            self._driver.close()
+            self._driver = new_driver
+        except Exception as e:
+            print(f"[warn] direct member connection failed: {e}; keeping original driver")
 
     def close(self) -> None:
         self._driver.close()
