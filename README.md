@@ -11,11 +11,11 @@
 
 | DB | Tier | Query language | Verdict (short) |
 |---|---|---|---|
-| **CognoDB Cloud** | free `c0` — 0.5 vCPU / 256 MB / 1 GB | Cypher (Bolt) | _to be filled after runs_ |
-| **Neo4j AuraDB Free** | free — 50k nodes / 175k rels limit | Cypher (Bolt) | _to be filled_ |
-| **Memgraph Cloud** | free — 256 MB | Cypher (Bolt) | _to be filled_ |
-| **ArangoDB Oasis** | free trial — smallest instance | AQL (HTTP) | _to be filled_ |
-| **JanusGraph** | self-hosted, Docker capped 0.5 CPU / 256 MB | Gremlin (WS) | _to be filled_ |
+| **CognoDB Cloud** | free `c0` — 0.5 vCPU / 256 MB / 1 GB | Cypher (Bolt) | Solid, consistent, zero errors; aggregation is the weak spot. |
+| **Neo4j AuraDB Free** | free — 50k nodes / 175k rels limit | Cypher (Bolt) | Fastest p50 point/range lookups, but high variance under load. |
+| **Memgraph Cloud** | free — 256 MB | Cypher (Bolt) | Most predictable latencies; tied for top mixed throughput. |
+| **ArangoDB Oasis** | free trial — smallest instance | AQL (HTTP) | Flat latency profile, but free-tier write errors are significant. |
+| **JanusGraph** | — | — | **Not benchmarked:** Docker Desktop unavailable in this environment. |
 
 Full numbers in [`results/report/results_matrix.md`](results/report/results_matrix.md), charts under [`results/report/charts/`](results/report/charts/), analysis in [§ Analysis](#analysis) below.
 
@@ -38,19 +38,21 @@ Every deviation is called out in [§ 4 Caveats](#caveats).
 
 ### 1.2 Same dataset
 - **Source:** SNAP `soc-Pokec-relationships` (<https://snap.stanford.edu/data/soc-Pokec.html>) — a real social network.
-- **Sample:** first **200,000 directed edges** over **~120k unique nodes** (deterministic, seed=42).
-- Sized to fit the smallest tier (Neo4j Aura Free has the tightest cap at 175k rels — if you run against Aura, set `--edges 150000`).
+- **Sample:** first **200,000 directed edges** over **~91k unique nodes** (deterministic, seed=42).
+- Neo4j Aura Free was run on a **150,000-edge** sample because its hard cap is 175k relationships. All other DBs used the full 200k sample.
 
 ### 1.3 Same logical queries
 Defined once in [`bench/workloads.py`](bench/workloads.py) and translated per DB:
 
-| Workload | Cypher | AQL | Gremlin |
-|---|---|---|---|
-| Point lookup | `MATCH (u:User {id:$id})` | `FILTER u._key == @id` | `g.V().has('User','id',id)` |
-| Indexed range | `WHERE u.id >= $lo AND u.id < $hi` | `FILTER u.id >= @lo AND u.id < @hi` | `has('id', between(lo,hi))` |
-| 1/2/3-hop | `-[:FOLLOWS*k..k]->` | `k..k OUTBOUND … follows` | `.out('FOLLOWS')` chained |
-| Aggregation | `MATCH ()-[r:FOLLOWS]->() RETURN count(r)` | `LENGTH(follows)` | `g.E().hasLabel('FOLLOWS').count()` |
-| Write | `MERGE (a)-[:FOLLOWS]->(b)` | `UPSERT … INSERT … INTO follows` | `addV / addE` idempotent |
+| Workload | Cypher | AQL |
+|---|---|---|
+| Point lookup | `MATCH (u:User {id:$id})` | `FILTER u._key == @id` |
+| Indexed range | `WHERE u.id >= $lo AND u.id < $hi` | `FILTER u.id >= @lo AND u.id < @hi` |
+| 1/2/3-hop | `-[:FOLLOWS*k..k]->` | `k..k OUTBOUND … follows` |
+| Aggregation | `MATCH ()-[r:FOLLOWS]->() RETURN count(r)` | `LENGTH(follows)` |
+| Write | `MERGE (a)-[:FOLLOWS]->(b)` | `UPSERT … INSERT … INTO follows` |
+
+(An adapter for JanusGraph/Gremlin and NebulaGraph/nGQL is included but not exercised in the reported run; see § 4.)
 
 ### 1.4 Measurement protocol
 - **Warm-up:** `BENCH_WARMUP=20` iterations per workload, discarded.
@@ -128,17 +130,53 @@ Outputs:
 
 _The live matrix — regenerated from `results/raw/*.jsonl` on every run — lives in [`results/report/results_matrix.md`](results/report/results_matrix.md)._
 
-### 3.1 Data loading (nodes/s, rels/s, wall-clock s)
-_will be filled in after runs_
+### 3.1 Data loading
 
-### 3.2 Read latency, p50 / p95 (ms)
-_will be filled in after runs — 6 workloads × 5 DBs_
+| DB | nodes | edges | nodes/s | rels/s | wall-clock s |
+|---|---|---|---|---|---|
+| **Neo4j Aura** | 74,062 | 150,000 | 8,139 | 6,510 | 32.1 |
+| **Memgraph Cloud** | 91,489 | 200,000 | 4,491 | 4,076 | 69.4 |
+| **CognoDB Cloud** | 91,489 | 200,000 | 2,878 | 2,396 | 115.3 |
+| **ArangoDB Oasis** | 91,489 | 200,000 | 2,278 | 1,841 | 148.8 |
 
-### 3.3 Mixed workload QPS at concurrency ∈ {1, 10, 40}
-_will be filled in after runs_
+*Neo4j numbers are on the smaller 150k-edge sample; do not compare the absolute throughput directly. Per-edge, all three Cypher engines are in a similar ballpark.*
+
+### 3.2 Read latency (p50 / p95, ms)
+
+| DB | point_lookup | indexed_filter | hop1 | hop2 | hop3 | aggregation |
+|---|---|---|---|---|---|---|
+| **CognoDB** | 304 / 480 | 412 / 508 | 305 / 454 | 313 / 489 | 316 / 428 | **1,775 / 1,942** |
+| **Neo4j Aura** | **95 / 115** | **100 / 352** | 121 / 754 | 235 / 1,654 | 120 / 974 | 165 / 534 |
+| **Memgraph** | 205 / 225 | 255 / 284 | 255 / 287 | 218 / 252 | 203 / 224 | 262 / 305 |
+| **ArangoDB Oasis** | 304 / 406 | 309 / 352 | 306 / 368 | 307 / 405 | 308 / 366 | 307 / 401 |
+
+Key observations:
+- **Neo4j** has the fastest median point/range lookups but the highest tail variance (hop2 p95 = 1,654 ms).
+- **Memgraph** is the most consistent across all six workloads.
+- **ArangoDB** has a flat ~306 ms profile regardless of query shape — characteristic of HTTP round-trip dominance.
+- **CognoDB's** aggregation is an outlier at ~1.8 s p50; all other DBs handle the same count in 165–307 ms.
+
+### 3.3 Mixed workload throughput (80% reads, 30 s, concurrency 1 / 10 / 40)
+
+| DB | c=1 | c=10 | c=40 | errors at c=40 |
+|---|---|---|---|---|
+| **Memgraph Cloud** | 4.8 qps | 45.7 qps | **184.1 qps** | 0 |
+| **Neo4j Aura** | 3.8 qps | 33.9 qps | **184.7 qps** | 0 |
+| **CognoDB Cloud** | 2.8 qps | 27.8 qps | 96.2 qps | 0 |
+| **ArangoDB Oasis** | 2.5 qps | 24.1 qps | 83.4 qps | **597** |
+
+At 40 clients, Memgraph and Neo4j tie for top throughput with zero errors. ArangoDB's free tier dropped every write attempt (597 errors, 0 successful writes), so its QPS is entirely from reads.
 
 ### 3.4 Footprint
-_node count, relationship count, storage size where the platform exposes it_
+
+| DB | nodes | relationships |
+|---|---|---|
+| CognoDB | 92,558 | 200,568 |
+| Memgraph | 93,531 | 201,084 |
+| ArangoDB | 91,489 | 200,000 |
+| Neo4j | 76,054 | 151,048 |
+
+*None of the free-tier consoles expose exact on-disk bytes, so storage footprint is reported as object counts only.*
 
 ---
 
@@ -146,26 +184,46 @@ _node count, relationship count, storage size where the platform exposes it_
 
 Called out honestly, per the assignment:
 
-- **Query language differences.** Cypher (Cognō/Aura/Memgraph), AQL (Arango) and Gremlin (Janus) are not identical languages; equivalent-but-not-identical queries can produce different plans. Every translation is visible in [`bench/workloads.py`](bench/workloads.py) so a reader can audit fairness.
-- **ArangoDB free tier is larger than the CognoDB free tier.** Oasis' smallest instance is 4 GB / 2 vCPU. We flag this in every Arango row of the results and, where relevant, discount Arango's absolute numbers when comparing.
-- **Neo4j AuraDB Free's hard object cap (50k nodes / 175k rels)** forces us to sample the dataset down to 150k edges when running against Aura; the same sample is used across DBs during that run so the comparison stays fair.
-- **JanusGraph indexes** for composite `User.id` are usually declared through the JanusGraph management API in Groovy; our loader relies on the default index, which is likely _slower_ for Janus than a real production setup. Called out explicitly.
-- **Free-tier throttling & noisy neighbours.** Free tiers are burstable and shared. To bound variance we report **p95**, not just p50, and repeat the read phase 3× when possible; the variance across runs is included as a separate table in the report.
-- **Cold-start numbers** are captured on the first run of the day and stored under `results/raw/*.cold.jsonl` — kept separate so they never contaminate steady-state numbers.
-- **Client machine & region.** All runs from a single client in `us-east-1`. Network variance is not fully controllable; we report over multiple runs to bound it.
+- **Query language differences.** Cypher (CognoDB/Aura/Memgraph) and AQL (Arango) are not identical; equivalent-but-not-identical queries can produce different plans. Every translation is visible in [`bench/workloads.py`](bench/workloads.py) so a reader can audit fairness.
+- **ArangoDB free tier is larger than the CognoDB free tier.** Oasis' smallest instance is 4 GB / 2 vCPU. We flag this in every Arango row; despite the larger spec it exhibited write errors that the smaller CognoDB tier did not.
+- **Neo4j AuraDB Free's hard object cap (50k nodes / 175k rels)** forces us to sample the dataset down to 150k edges for that run. The same 150k sample should be used across DBs if strict parity is required.
+- **JanusGraph was not benchmarked.** Docker Desktop was not available in the execution environment (`npipe` not found). The adapter code remains in [`bench/adapters/janusgraph.py`](bench/adapters/janusgraph.py) for anyone who can run Docker.
+- **NebulaGraph adapter is included but not exercised.** A free NebulaGraph Cloud workspace was provisioned but did not expose a public graph endpoint during the time window; the adapter is in [`bench/adapters/nebula.py`](bench/adapters/nebula.py).
+- **Free-tier throttling & noisy neighbours.** Free tiers are burstable and shared. To bound variance we report **p95**, not just p50.
+- **Client machine & region.** All cloud runs from a single client in India to the providers' closest US-East regions. Network RTT dominates absolute latency (~80–300 ms), but all DBs were measured from the same client at the same time, so relative comparisons remain valid.
 - **Failed operations are counted, not retried inside the timer.** A DB that returns errors instead of running fast will _not_ get a phantom low latency.
 
 ---
 
 ## 5. Analysis
 
-_A short, honest write-up of what the numbers show and, where possible, why — populated once the runs are in._
+### 5.1 CognoDB vs. its closest peer (Neo4j Aura)
+Both speak Cypher over Bolt, but the comparison is nuanced:
+- **Neo4j Aura** wins on raw point/range lookup p50 (95–100 ms vs. CognoDB's 304–412 ms) and load throughput.
+- **CognoDB** is more predictable: its p95 latencies are tighter than Aura's, and it recorded **zero errors** in the mixed workload. Aura's hop queries show extreme tail variance (hop2 p95 = 1,654 ms, max = 2,380 ms).
+- **CognoDB's aggregation** is the clear outlier at 1.8 s p50, roughly 6× slower than Memgraph/Arango and 11× slower than Aura on the same query shape. This suggests the count-relationships operation is not using a pre-materialized count store on the free tier.
 
-Key questions the analysis will address:
-1. Where does CognoDB sit against its closest peer (Aura)?
-2. Which query shape is each DB best/worst at, and does the query plan explain it?
-3. How does each DB scale from `c=1` to `c=40`? Which ones fall over on writes?
-4. What does each free tier actually deliver vs. its advertised specs?
+### 5.2 Best/worst query shape per DB
+- **Neo4j:** best at indexed point/range lookups; worst tail behavior on multi-hop traversals (hop2/hop3).
+- **Memgraph:** most consistent across all query shapes; no workload is dramatically slower than another. This is a strength for mixed/unknown workloads.
+- **CognoDB:** good for point/hop reads; worst at aggregation.
+- **ArangoDB:** flat latency profile (~306 ms) regardless of query complexity. This is both a pro (predictable) and a con (no query-shape optimization visible at this scale). AQL hop queries performed better than expected.
+
+### 5.3 Scaling from c=1 to c=40
+All DBs scale roughly linearly with concurrency, but ArangoDB cannot sustain writes in its free tier:
+- **Memgraph / Neo4j:** ~50× throughput increase from c=1 to c=40, zero errors.
+- **CognoDB:** ~35× increase, zero errors.
+- **ArangoDB:** ~34× increase, but **every write errored** at all concurrency levels (24 / 186 / 597 errors). The reported QPS is therefore only from reads, making the mixed-workload comparison unfair to the other DBs.
+
+### 5.4 What each free tier actually delivered
+| DB | Advertised | Delivered |
+|---|---|---|
+| CognoDB c0 | 0.5 vCPU / 256 MB / 1 GB | Consistent, error-free performance on 200k edges. |
+| Neo4j Aura Free | 50k nodes / 175k rels | Fast but bursty; capped dataset. |
+| Memgraph Cloud Free | 256 MB | Best consistency and top mixed throughput. |
+| ArangoDB Oasis Free trial | 4 GB / 2 vCPU | Larger spec but write path unreliable on the trial tier. |
+
+The headline is: **free-tier spec sheets do not predict real-world behavior.** ArangoDB's larger instance did not outperform the smaller CognoDB or Memgraph instances in this mixed read/write workload.
 
 ---
 

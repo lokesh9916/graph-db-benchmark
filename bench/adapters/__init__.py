@@ -20,7 +20,10 @@ def get_adapter(name: str) -> Adapter:
     if name == "janusgraph":
         from .janusgraph import JanusAdapter
         return JanusAdapter()
+    if name == "nebula":
+        from .nebula import NebulaAdapter
+        return NebulaAdapter()
     raise ValueError(f"Unknown adapter: {name}")
 
 
-ALL_ADAPTERS = ["cognodb", "neo4j", "memgraph", "arangodb", "janusgraph"]
+ALL_ADAPTERS = ["cognodb", "neo4j", "memgraph", "arangodb", "janusgraph", "nebula"]

@@ -1,6 +1,7 @@
 neo4j==5.25.0
 python-arango==8.1.4
 gremlinpython==3.7.2
+nebula3-python==3.8.2
 python-dotenv==1.0.1
 pandas==2.2.3
 numpy==2.1.2

@@ -74,3 +74,13 @@ def arango_env() -> dict[str, str]:
 
 def janus_env() -> dict[str, str]:
     return {"url": os.getenv("JANUS_URL", "ws://localhost:8182/gremlin")}
+
+
+def nebula_env() -> dict[str, str]:
+    return {
+        "host": os.environ["NEBULA_HOST"],
+        "port": os.getenv("NEBULA_PORT", "9669"),
+        "user": os.getenv("NEBULA_USER", "root"),
+        "password": os.environ["NEBULA_PASSWORD"],
+        "space": os.getenv("NEBULA_SPACE", "benchmark"),
+    }
