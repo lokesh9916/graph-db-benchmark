@@ -17,7 +17,12 @@ class CypherAdapter(Adapter):
 
     def connect(self) -> None:
         self._driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
-        self._driver.verify_connectivity()
+        # Aura Free sometimes fails routing verification during provisioning;
+        # queries themselves may still work. Don't abort the benchmark for this.
+        try:
+            self._driver.verify_connectivity()
+        except Exception as e:
+            print(f"[warn] verify_connectivity failed: {e}; continuing anyway")
 
     def close(self) -> None:
         self._driver.close()

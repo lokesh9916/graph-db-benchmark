@@ -49,6 +49,7 @@ def neo4j_env() -> dict[str, str]:
         "uri": os.environ["NEO4J_URI"],
         "user": os.getenv("NEO4J_USER", "neo4j"),
         "password": os.environ["NEO4J_PASSWORD"],
+        "database": os.getenv("NEO4J_DATABASE"),
     }
 
 
