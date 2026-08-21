@@ -39,7 +39,7 @@ Every deviation is called out in [§ 4 Caveats](#caveats).
 ### 1.2 Same dataset
 - **Source:** SNAP `soc-Pokec-relationships` (<https://snap.stanford.edu/data/soc-Pokec.html>) — a real social network.
 - **Sample:** first **200,000 directed edges** over **~91k unique nodes** (deterministic, seed=42).
-- Neo4j Aura Free was run on a **150,000-edge** sample because its hard cap is 175k relationships. All other DBs used the full 200k sample.
+- Neo4j AuraDB Free's hard cap (50k nodes / 175k relationships) forced the Neo4j run to use a **150,000-edge** subset. All other databases used the full 200k sample. This is documented as a fairness caveat.
 
 ### 1.3 Same logical queries
 Defined once in [`bench/workloads.py`](bench/workloads.py) and translated per DB:
@@ -77,7 +77,7 @@ Every knob is env-driven and pinned in [`.env.example`](.env.example).
 ### One-time setup
 
 ```powershell
-git clone https://github.com/lokeshp0409/graph-db-benchmark.git
+git clone https://github.com/lokesh9916/graph-db-benchmark.git
 cd graph-db-benchmark
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
