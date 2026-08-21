@@ -23,7 +23,10 @@ def get_adapter(name: str) -> Adapter:
     if name == "nebula":
         from .nebula import NebulaAdapter
         return NebulaAdapter()
+    if name == "kuzu":
+        from .kuzu import KuzuAdapter
+        return KuzuAdapter()
     raise ValueError(f"Unknown adapter: {name}")
 
 
-ALL_ADAPTERS = ["cognodb", "neo4j", "memgraph", "arangodb", "janusgraph", "nebula"]
+ALL_ADAPTERS = ["cognodb", "neo4j", "memgraph", "arangodb", "janusgraph", "nebula", "kuzu"]

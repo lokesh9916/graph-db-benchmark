@@ -3,7 +3,7 @@
 # Requires .env populated. Fails fast if a DB is unreachable.
 set -euo pipefail
 
-DBS=(${DBS:-cognodb neo4j memgraph arangodb janusgraph})
+DBS=(${DBS:-cognodb neo4j memgraph arangodb janusgraph kuzu})
 PHASE=${PHASE:-all}
 
 if [[ ! -f data/processed/pokec_200k/edges.csv ]]; then

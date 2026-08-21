@@ -2,7 +2,7 @@
 # Requires .env populated. Fails fast if a DB is unreachable.
 
 param(
-    [string[]] $Dbs = @("cognodb", "neo4j", "memgraph", "arangodb", "janusgraph"),
+    [string[]] $Dbs = @("cognodb", "neo4j", "memgraph", "arangodb", "janusgraph", "kuzu"),
     [string]   $Phase = "all"
 )
 
@@ -20,3 +20,4 @@ foreach ($db in $Dbs) {
 
 Write-Host "==== Building report ===="
 python scripts/plot.py
+

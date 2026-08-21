@@ -1,0 +1,10 @@
+{
+  "db": "kuzu",
+  "footprint": {
+    "phase": "footprint",
+    "db": "kuzu",
+    "nodes": 92855,
+    "relationships": 200722,
+    "storage_bytes": 12169216
+  }
+}

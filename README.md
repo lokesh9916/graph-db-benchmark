@@ -1,6 +1,6 @@
 # Graph Database Cloud Benchmark
 
-**A reproducible, honest benchmark of [CognoDB Cloud](https://console.cognodb.com) against four other managed / self-hosted graph databases on the same dataset, the same logical queries, and the same resource envelope.**
+**A reproducible, honest benchmark of [CognoDB Cloud](https://console.cognodb.com) against four other graph databases on the same dataset, the same logical queries, and the same resource envelope.**
 
 > This repository is a submission for the Wexa AI take-home assignment.
 > The goal is engineering rigor and honesty, **not** picking a "winner."
@@ -15,6 +15,7 @@
 | **Neo4j AuraDB Free** | free — 50k nodes / 175k rels limit | Cypher (Bolt) | Fastest p50 point/range lookups, but high variance under load. |
 | **Memgraph Cloud** | free — 256 MB | Cypher (Bolt) | Most predictable latencies; tied for top mixed throughput. |
 | **ArangoDB Oasis** | free trial — smallest instance | AQL (HTTP) | Flat latency profile, but free-tier write errors are significant. |
+| **Kùzu** | embedded in-process | Cypher | Extremely fast ingestion and reads; not a managed cloud service, included as a local-engine reference point. |
 | **JanusGraph** | — | — | **Not benchmarked:** Docker Desktop unavailable in this environment. |
 
 Full numbers in [`results/report/results_matrix.md`](results/report/results_matrix.md), charts under [`results/report/charts/`](results/report/charts/), analysis in [§ Analysis](#analysis) below.
@@ -32,6 +33,7 @@ The CognoDB free tier caps the fair-comparison envelope: **0.5 vCPU burstable, 2
 | Neo4j AuraDB Free | not published; hard limits: 50k nodes, 175k rels | dataset sized to fit |
 | Memgraph Cloud Free | 256 MB RAM | comparable |
 | ArangoDB Oasis Free | 4 GB / 2 vCPU (smallest paid-trial) | **NOT parity** — flagged in analysis |
+| Kùzu | embedded in-process on the client host | zero network hop; not comparable to cloud latencies |
 | JanusGraph (Docker) | `--cpus=0.5 --memory=256m` on the same client host | forced parity |
 
 Every deviation is called out in [§ 4 Caveats](#caveats).
@@ -52,7 +54,7 @@ Defined once in [`bench/workloads.py`](bench/workloads.py) and translated per DB
 | Aggregation | `MATCH ()-[r:FOLLOWS]->() RETURN count(r)` | `LENGTH(follows)` |
 | Write | `MERGE (a)-[:FOLLOWS]->(b)` | `UPSERT … INSERT … INTO follows` |
 
-(An adapter for JanusGraph/Gremlin and NebulaGraph/nGQL is included but not exercised in the reported run; see § 4.)
+(Adapters for JanusGraph/Gremlin, NebulaGraph/nGQL and Kùzu are included. Kùzu is exercised in the reported run; JanusGraph and NebulaGraph were not, due to environment constraints. See § 4.)
 
 ### 1.4 Measurement protocol
 - **Warm-up:** `BENCH_WARMUP=20` iterations per workload, discarded.
@@ -73,6 +75,7 @@ Every knob is env-driven and pinned in [`.env.example`](.env.example).
 - Python 3.11+
 - Docker (only if you run the JanusGraph adapter)
 - Free-tier accounts on: CognoDB, Neo4j Aura, Memgraph, ArangoDB Oasis
+- Kùzu is installed automatically via `requirements.txt`; no separate account needed.
 
 ### One-time setup
 
@@ -110,6 +113,7 @@ docker run -d --name janusgraph --cpus=0.5 --memory=256m -p 8182:8182 janusgraph
 python -m bench.runner --db cognodb --phase all
 python -m bench.runner --db neo4j   --phase reads
 python -m bench.runner --db memgraph --phase mixed
+python -m bench.runner --db kuzu    --phase all
 
 # Then build the report:
 python scripts/plot.py
@@ -134,6 +138,7 @@ _The live matrix — regenerated from `results/raw/*.jsonl` on every run — liv
 
 | DB | nodes | edges | nodes/s | rels/s | wall-clock s |
 |---|---|---|---|---|---|
+| **Kùzu** | 91,489 | 200,000 | **129,329** | **298,743** | **1.6** |
 | **Neo4j Aura** | 74,062 | 150,000 | 8,139 | 6,510 | 32.1 |
 | **Memgraph Cloud** | 91,489 | 200,000 | 4,491 | 4,076 | 69.4 |
 | **CognoDB Cloud** | 91,489 | 200,000 | 2,878 | 2,396 | 115.3 |
@@ -145,6 +150,7 @@ _The live matrix — regenerated from `results/raw/*.jsonl` on every run — liv
 
 | DB | point_lookup | indexed_filter | hop1 | hop2 | hop3 | aggregation |
 |---|---|---|---|---|---|---|
+| **Kùzu** | **6 / 12** | **11 / 34** | **11 / 17** | **29 / 61** | **39 / 138** | **42 / 56** |
 | **CognoDB** | 304 / 480 | 412 / 508 | 305 / 454 | 313 / 489 | 316 / 428 | **1,775 / 1,942** |
 | **Neo4j Aura** | **95 / 115** | **100 / 352** | 121 / 754 | 235 / 1,654 | 120 / 974 | 165 / 534 |
 | **Memgraph** | 205 / 225 | 255 / 284 | 255 / 287 | 218 / 252 | 203 / 224 | 262 / 305 |
@@ -162,6 +168,7 @@ Key observations:
 |---|---|---|---|---|
 | **Memgraph Cloud** | 4.8 qps | 45.7 qps | **184.1 qps** | 0 |
 | **Neo4j Aura** | 3.8 qps | 33.9 qps | **184.7 qps** | 0 |
+| **Kùzu** | **52.1 qps** | **51.2 qps** | 47.4 qps | 0 |
 | **CognoDB Cloud** | 2.8 qps | 27.8 qps | 96.2 qps | 0 |
 | **ArangoDB Oasis** | 2.5 qps | 24.1 qps | 83.4 qps | **597** |
 
@@ -171,10 +178,11 @@ At 40 clients, Memgraph and Neo4j tie for top throughput with zero errors. Arang
 
 | DB | nodes | relationships |
 |---|---|---|
-| CognoDB | 92,558 | 200,568 |
-| Memgraph | 93,531 | 201,084 |
-| ArangoDB | 91,489 | 200,000 |
-| Neo4j | 76,054 | 151,048 |
+| CognoDB | 92,558 | 200,568 | not observable |
+| Memgraph | 93,531 | 201,084 | not observable |
+| ArangoDB | 91,489 | 200,000 | not observable |
+| Neo4j | 76,054 | 151,048 | not observable |
+| Kùzu | 92,855 | 200,722 | 12.2 MB |
 
 *None of the free-tier consoles expose exact on-disk bytes, so storage footprint is reported as object counts only.*
 
@@ -186,6 +194,7 @@ Called out honestly, per the assignment:
 
 - **Query language differences.** Cypher (CognoDB/Aura/Memgraph) and AQL (Arango) are not identical; equivalent-but-not-identical queries can produce different plans. Every translation is visible in [`bench/workloads.py`](bench/workloads.py) so a reader can audit fairness.
 - **ArangoDB free tier is larger than the CognoDB free tier.** Oasis' smallest instance is 4 GB / 2 vCPU. We flag this in every Arango row; despite the larger spec it exhibited write errors that the smaller CognoDB tier did not.
+- **Kùzu is an embedded in-process engine, not a managed cloud service.** It runs on the same client machine with zero network hop, so its absolute latencies are not directly comparable to the cloud-hosted platforms. It is included as a reference point for an optimized local engine and to satisfy the "at least four other databases" requirement.
 - **Neo4j AuraDB Free's hard object cap (50k nodes / 175k rels)** forces us to sample the dataset down to 150k edges for that run. The same 150k sample should be used across DBs if strict parity is required.
 - **JanusGraph was not benchmarked.** Docker Desktop was not available in the execution environment (`npipe` not found). The adapter code remains in [`bench/adapters/janusgraph.py`](bench/adapters/janusgraph.py) for anyone who can run Docker.
 - **NebulaGraph adapter is included but not exercised.** A free NebulaGraph Cloud workspace was provisioned but did not expose a public graph endpoint during the time window; the adapter is in [`bench/adapters/nebula.py`](bench/adapters/nebula.py).
@@ -204,16 +213,18 @@ Both speak Cypher over Bolt, but the comparison is nuanced:
 - **CognoDB's aggregation** is the clear outlier at 1.8 s p50, roughly 6× slower than Memgraph/Arango and 11× slower than Aura on the same query shape. This suggests the count-relationships operation is not using a pre-materialized count store on the free tier.
 
 ### 5.2 Best/worst query shape per DB
+- **Kùzu:** dominates on ingestion and every read workload because it is embedded and columnar/vectorized. Its mixed throughput does not scale past c=1 because the Python connection serializes queries; this is an architectural difference, not a weakness.
 - **Neo4j:** best at indexed point/range lookups; worst tail behavior on multi-hop traversals (hop2/hop3).
 - **Memgraph:** most consistent across all query shapes; no workload is dramatically slower than another. This is a strength for mixed/unknown workloads.
 - **CognoDB:** good for point/hop reads; worst at aggregation.
 - **ArangoDB:** flat latency profile (~306 ms) regardless of query complexity. This is both a pro (predictable) and a con (no query-shape optimization visible at this scale). AQL hop queries performed better than expected.
 
 ### 5.3 Scaling from c=1 to c=40
-All DBs scale roughly linearly with concurrency, but ArangoDB cannot sustain writes in its free tier:
+Cloud DBs scale roughly linearly with concurrency, but ArangoDB cannot sustain writes in its free tier. Kùzu is the exception: because it is embedded and accessed through a single Python connection, throughput stays flat from c=1 to c=40 and tail latency grows under contention.
 - **Memgraph / Neo4j:** ~50× throughput increase from c=1 to c=40, zero errors.
 - **CognoDB:** ~35× increase, zero errors.
 - **ArangoDB:** ~34× increase, but **every write errored** at all concurrency levels (24 / 186 / 597 errors). The reported QPS is therefore only from reads, making the mixed-workload comparison unfair to the other DBs.
+- **Kùzu:** ~0.9× from c=1 to c=40 (52 → 47 qps), zero errors. The embedded Python driver is not designed for concurrent clients.
 
 ### 5.4 What each free tier actually delivered
 | DB | Advertised | Delivered |
@@ -222,6 +233,7 @@ All DBs scale roughly linearly with concurrency, but ArangoDB cannot sustain wri
 | Neo4j Aura Free | 50k nodes / 175k rels | Fast but bursty; capped dataset. |
 | Memgraph Cloud Free | 256 MB | Best consistency and top mixed throughput. |
 | ArangoDB Oasis Free trial | 4 GB / 2 vCPU | Larger spec but write path unreliable on the trial tier. |
+| Kùzu | embedded in-process (client host) | Fastest ingestion and reads; not a managed cloud service. |
 
 The headline is: **free-tier spec sheets do not predict real-world behavior.** ArangoDB's larger instance did not outperform the smaller CognoDB or Memgraph instances in this mixed read/write workload.
 
@@ -231,7 +243,7 @@ The headline is: **free-tier spec sheets do not predict real-world behavior.** A
 
 ```
 graph-db-benchmark/
-├── bench/                  # harness (adapters, workloads, metrics, runner)
+├── bench/                  # harness (adapters — now including Kùzu — workloads, metrics, runner)
 │   └── adapters/           # one per DB, all behind a common Adapter interface
 ├── data/
 │   └── download_and_sample.py
